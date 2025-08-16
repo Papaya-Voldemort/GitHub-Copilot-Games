@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NEON ASCENT — Web Game (Standalone)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <style>
+    :root {
+      --ui-bg: rgba(8, 10, 20, 0.84);
+      --ui-panel: rgba(16, 18, 32, 0.92);
+      --ui-accent: #6ef9ff;
+      --ui-accent-2: #ff4df2;
+      --ui-text: #e6f2ff;
+      --ui-muted: #9fb3c8;
+      --ui-good: #8fff6e;
+      --ui-bad: #ff6e8f;
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: radial-gradient(1200px 600px at 50% 20%, #080a14, #03040a 70%, #000 100%);
+      color: var(--ui-text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      overflow: hidden;
+    }
+    #container {
+      position: fixed;
+      inset: 0;
+    }
+    canvas#game {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: optimizeQuality;
+      background: transparent;
+    }
+    .overlay {
+      position: fixed;
+      pointer-events: none;
+      inset: 0;
+      background: radial-gradient(1000px 360px at 50% 0%, rgba(110,249,255,0.06) 0%, rgba(255,77,242,0.04) 30%, rgba(0,0,0,0) 60%);
+      mix-blend-mode: screen;
+      opacity: 0.66;
+    }
+    .grain {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: repeating-radial-gradient(circle at 10% 10%, rgba(255,255,255,0.03), rgba(255,255,255,0.03) 2px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 4px);
+      mix-blend-mode: soft-light;
+      animation: grain 6s linear infinite;
+      opacity: 0.15;
+    }
+    @keyframes grain {
+      0% { transform: translate3d(0,0,0); }
+      100% { transform: translate3d(10px, -10px, 0); }
+    }
+    .ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      gap: 12px;
+      pointer-events: none;
+      user-select: none;
+    }
+    .badge {
+      pointer-events: all;
+      padding: 8px 12px;
+      background: linear-gradient(180deg, var(--ui-bg), rgba(12,14,28,0.6));
+      border: 1px solid rgba(110,249,255,0.22);
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(110,249,255,0.12), inset 0 0 24px rgba(110,249,255,0.05);
+      backdrop-filter: blur(8px) saturate(1.2);
+      font-weight: 600;
+      letter-spacing: 0.25px;
+      text-shadow: 0 0 8px rgba(110,249,255,0.4);
+    }
+    .ui-right {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 12px;
+      pointer-events: none;
+    }
+    .btn {
+      pointer-events: all;
+      padding: 10px 14px;
+      background: linear-gradient(180deg, var(--ui-bg), rgba(12,14,28,0.6));
+      border: 1px solid rgba(255,77,242,0.28);
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(255,77,242,0.12), inset 0 0 24px rgba(255,77,242,0.05);
+      color: var(--ui-text);
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+      text-shadow: 0 0 8px rgba(255,77,242,0.3);
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 0 28px rgba(255,77,242,0.22), inset 0 0 32px rgba(255,77,242,0.08); }
+    .btn:active { transform: translateY(0px) scale(0.99); }
+
+    .panel {
+      position: fixed;
+      right: 12px;
+      top: 60px;
+      width: min(440px, calc(100% - 24px));
+      max-height: calc(100% - 72px);
+      overflow: auto;
+      background: var(--ui-panel);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 4px 38px rgba(0,0,0,0.4), inset 0 0 24px rgba(110,249,255,0.05);
+      backdrop-filter: blur(10px) saturate(1.2);
+      display: none;
+      pointer-events: all;
+    }
+    .panel.show { display: block; }
+    .panel h2 {
+      margin: 6px 0 12px;
+      font-size: 18px;
+      color: var(--ui-accent);
+      text-shadow: 0 0 12px rgba(110,249,255,0.5);
+    }
+    .section {
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed rgba(255,255,255,0.08);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px 10px;
+      padding: 6px 0;
+      font-size: 14px;
+      color: var(--ui-muted);
+    }
+    .row label { color: var(--ui-text); }
+    .row input[type="range"] { width: 150px; }
+    .row input[type="number"] { width: 72px; background: #0c0f1e; color: var(--ui-text); border: 1px solid #1b2242; border-radius: 6px; padding: 4px 6px; }
+    .row select { width: 180px; background: #0c0f1e; color: var(--ui-text); border: 1px solid #1b2242; border-radius: 6px; padding: 6px 8px; }
+    .row .toggle { appearance: none; width: 44px; height: 24px; border-radius: 18px; background: #20263f; position: relative; outline: none; border: 1px solid #303b66; cursor: pointer; }
+    .row .toggle:checked { background: #215f7c; border-color: #2d90bd; box-shadow: inset 0 0 24px rgba(110,249,255,0.3); }
+    .row .toggle:before { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #cde6ff; border-radius: 50%; transition: left 0.12s ease; box-shadow: 0 0 10px rgba(110,249,255,0.35); }
+    .row .toggle:checked:before { left: 22px; background: #eaffff; }
+
+    .footer {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .centerSplash {
+      position: fixed;
+      top: 52%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+      user-select: none;
+    }
+    .title {
+      font-weight: 900;
+      font-size: clamp(28px, 6vw, 56px);
+      letter-spacing: 1.5px;
+      line-height: 1.1;
+      background: linear-gradient(90deg, #6ef9ff, #ff4df2 50%, #ffd86e);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: 0 0 22px rgba(110,249,255,0.25), 0 0 40px rgba(255,77,242,0.18);
+      filter: drop-shadow(0 0 12px rgba(110,249,255,0.25));
+    }
+    .subtitle {
+      margin-top: 10px;
+      color: #b8cde6;
+      letter-spacing: 0.4px;
+      text-shadow: 0 0 10px rgba(110,249,255,0.15);
+    }
+    .hint {
+      margin-top: 14px;
+      color: #8fa1ba;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    .bottomBar {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .xpbar {
+      flex: 1;
+      height: 14px;
+      background: rgba(20, 22, 40, 0.8);
+      border: 1px solid rgba(110,249,255,0.2);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: inset 0 0 24px rgba(110,249,255,0.08);
+    }
+    .xpbar > .fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, rgba(110,249,255,0.9), rgba(255,77,242,0.9));
+      box-shadow: 0 0 12px rgba(110,249,255,0.45), 0 0 28px rgba(255,77,242,0.25);
+      transition: width 0.2s ease;
+    }
+    .progressText {
+      margin-left: 10px;
+      pointer-events: auto;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(15,18,35,0.8);
+      color: #cfe4ff;
+      font-weight: 700;
+      text-shadow: 0 0 10px rgba(110,249,255,0.25);
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 80px;
+      transform: translateX(-50%);
+      background: rgba(14,16,30,0.9);
+      border: 1px solid rgba(110,249,255,0.25);
+      color: var(--ui-text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4), 0 0 24px rgba(110,249,255,0.15);
+      display: none;
+      pointer-events: none;
+      font-weight: 700;
+    }
+    .toast.show { display: block; }
+    .kbd {
+      display: inline-block;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-bottom-width: 3px;
+      background: #0e1227;
+      padding: 2px 6px;
+      border-radius: 6px;
+      margin: 0 2px;
+      font-weight: 900;
+      color: #d6e9ff;
+      text-shadow: 0 0 8px rgba(110,249,255,0.3);
+    }
+    /* Hide scrollbars for settings panel on some browsers */
+    .panel::-webkit-scrollbar { width: 10px; }
+    .panel::-webkit-scrollbar-thumb { background: rgba(110,249,255,0.18); border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <canvas id="game"></canvas>
+    <div class="overlay"></div>
+    <div class="grain"></div>
+
+    <div class="ui">
+      <div class="badge" id="hudScore">Score: 0</div>
+      <div class="badge" id="hudShards">Shards: 0</div>
+      <div class="badge" id="hudLevel">Level: 1</div>
+      <div class="badge" id="hudFPS">FPS: 0</div>
+    </div>
+
+    <div class="ui-right">
+      <button class="btn" id="btnPlayPause">▶ Start</button>
+      <button class="btn" id="btnSettings">⚙ Graphics</button>
+    </div>
+
+    <div class="panel" id="settingsPanel" aria-label="Graphics and Gameplay Settings">
+      <h2>Graphics Settings</h2>
+      <div class="section">
+        <div class="row">
+          <label for="preset">Quality Preset</label>
+          <select id="preset">
+            <option value="cinematic">Cinematic (Max)</option>
+            <option value="ultra">Ultra</option>
+            <option value="high" selected>High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+            <option value="potato">Potato</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>Resolution Scale</label>
+          <div>
+            <input id="resScale" type="range" min="0.5" max="1.5" step="0.05" value="1.0" />
+            <input id="resScaleNum" type="number" min="0.5" max="1.5" step="0.05" value="1.0" />
+          </div>
+        </div>
+        <div class="row">
+          <label>Bloom Strength</label>
+          <div>
+            <input id="bloomStrength" type="range" min="0" max="2" step="0.05" value="1.0" />
+            <input id="bloomStrengthNum" type="number" min="0" max="2" step="0.05" value="1.0" />
+          </div>
+        </div>
+        <div class="row">
+          <label>Bloom Quality (passes)</label>
+          <div>
+            <input id="bloomPasses" type="range" min="1" max="6" step="1" value="4" />
+            <input id="bloomPassesNum" type="number" min="1" max="6" step="1" value="4" />
+          </div>
+        </div>
+        <div class="row">
+          <label>Motion Blur</label>
+          <input id="motionBlur" class="toggle" type="checkbox" checked />
+        </div>
+        <div class="row">
+          <label>Motion Blur Strength</label>
+          <div>
+            <input id="mbStrength" type="range" min="0.80" max="0.98" step="0.01" value="0.92" />
+            <input id="mbStrengthNum" type="number" min="0.80" max="0.98" step="0.01" value="0.92" />
+          </div>
+        </div>
+        <div class="row">
+          <label>Vignette</label>
+          <input id="vignette" class="toggle" type="checkbox" checked />
+        </div>
+        <div class="row">
+          <label>Chromatic Aberration</label>
+          <input id="chroma" class="toggle" type="checkbox" />
+        </div>
+        <div class="row">
+          <label>Film Grain</label>
+          <input id="grainToggle" class="toggle" type="checkbox" checked />
+        </div>
+        <div class="row">
+          <label>Particles Density</label>
+          <div>
+            <input id="particleMul" type="range" min="0" max="3" step="0.25" value="1.5" />
+            <input id="particleMulNum" type="number" min="0" max="3" step="0.25" value="1.5" />
+          </div>
+        </div>
+        <div class="row">
+          <label>Trails Quality</label>
+          <div>
+            <input id="trailQuality" type="range" min="0" max="1" step="0.05" value="0.7" />
+            <input id="trailQualityNum" type="number" min="0" max="1" step="0.05" value="0.7" />
+          </div>
+        </div>
+      </div>
+
+      <h2>Gameplay</h2>
+      <div class="section">
+        <div class="row">
+          <label>Difficulty</label>
+          <select id="difficulty">
+            <option value="relaxed">Relaxed</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+            <option value="insane">Insane</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>Auto-Scale Graphics (FPS Guard)</label>
+          <input id="autoScale" class="toggle" type="checkbox" />
+        </div>
+        <div class="row">
+          <label>Reset Progress</label>
+          <button class="btn" id="resetProgressBtn">Reset</button>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button class="btn" id="applyBtn">Apply</button>
+        <button class="btn" id="closeBtn">Close</button>
+      </div>
+    </div>
+
+    <div class="centerSplash" id="splash">
+      <div class="title">NEON ASCENT</div>
+      <div class="subtitle">Outrun the void. Collect shards. Ascend through levels.</div>
+      <div class="hint">Controls: <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> or <span class="kbd">Arrows</span> to move, <span class="kbd">Space</span> to dash, <span class="kbd">G</span> for Graphics, <span class="kbd">P</span> Pause</div>
+    </div>
+
+    <div class="bottomBar">
+      <div class="xpbar"><div class="fill" id="xpFill"></div></div>
+      <div class="progressText" id="progressText">XP 0/100</div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script>
+    (() => {
+      const STORAGE_KEY = "NEON_ASCENT_SAVE_V1";
+      const DEFAULTS = {
+        version: 1,
+        graphics: {
+          preset: "high",
+          resScale: 1.0,
+          bloomStrength: 1.0,
+          bloomPasses: 4,
+          motionBlur: true,
+          mbStrength: 0.92,
+          vignette: true,
+          chroma: false,
+          grain: true,
+          particleMul: 1.5,
+          trailQuality: 0.7,
+          autoScale: false
+        },
+        progression: {
+          level: 1,
+          xp: 0,
+          xpForNext: 100,
+          shards: 0,
+          bestScore: 0,
+          upgrades: {
+            speed: 0,
+            magnet: 0,
+            shield: 0,
+            fireRate: 0
+          }
+        },
+        gameplay: { difficulty: "normal" }
+      };
+
+      function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+      function lerp(a, b, t) { return a + (b - a) * t; }
+      function rnd(a=0, b=1) { return a + Math.random() * (b - a); }
+      function now() { return performance.now(); }
+
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true, willReadFrequently: false });
+
+      const overlayGrain = document.querySelector(".grain");
+
+      // Offscreen buffers for rendering pipeline
+      const buffers = {
+        scene: document.createElement("canvas"),
+        glow: document.createElement("canvas"),
+        compose: document.createElement("canvas"),
+        lastFrame: document.createElement("canvas"), // for motion blur
+        temp: document.createElement("canvas"), // for blurs/downsample
+        temp2: document.createElement("canvas"), // more passes / chroma
+        r: document.createElement("canvas"),
+        g: document.createElement("canvas"),
+        b: document.createElement("canvas")
+      };
+      const bctx = {
+        scene: buffers.scene.getContext("2d"),
+        glow: buffers.glow.getContext("2d"),
+        compose: buffers.compose.getContext("2d"),
+        lastFrame: buffers.lastFrame.getContext("2d"),
+        temp: buffers.temp.getContext("2d"),
+        temp2: buffers.temp2.getContext("2d"),
+        r: buffers.r.getContext("2d"),
+        g: buffers.g.getContext("2d"),
+        b: buffers.b.getContext("2d")
+      };
+
+      const ui = {
+        score: document.getElementById("hudScore"),
+        shards: document.getElementById("hudShards"),
+        level: document.getElementById("hudLevel"),
+        fps: document.getElementById("hudFPS"),
+        xpFill: document.getElementById("xpFill"),
+        progressText: document.getElementById("progressText"),
+        btnPlayPause: document.getElementById("btnPlayPause"),
+        btnSettings: document.getElementById("btnSettings"),
+        panel: document.getElementById("settingsPanel"),
+        toast: document.getElementById("toast"),
+        splash: document.getElementById("splash"),
+        // settings controls
+        preset: document.getElementById("preset"),
+        resScale: document.getElementById("resScale"),
+        resScaleNum: document.getElementById("resScaleNum"),
+        bloomStrength: document.getElementById("bloomStrength"),
+        bloomStrengthNum: document.getElementById("bloomStrengthNum"),
+        bloomPasses: document.getElementById("bloomPasses"),
+        bloomPassesNum: document.getElementById("bloomPassesNum"),
+        motionBlur: document.getElementById("motionBlur"),
+        mbStrength: document.getElementById("mbStrength"),
+        mbStrengthNum: document.getElementById("mbStrengthNum"),
+        vignette: document.getElementById("vignette"),
+        chroma: document.getElementById("chroma"),
+        grainToggle: document.getElementById("grainToggle"),
+        particleMul: document.getElementById("particleMul"),
+        particleMulNum: document.getElementById("particleMulNum"),
+        trailQuality: document.getElementById("trailQuality"),
+        trailQualityNum: document.getElementById("trailQualityNum"),
+        difficulty: document.getElementById("difficulty"),
+        autoScale: document.getElementById("autoScale"),
+        applyBtn: document.getElementById("applyBtn"),
+        closeBtn: document.getElementById("closeBtn"),
+        resetBtn: document.getElementById("resetProgressBtn")
+      };
+
+      // Game State
+      const state = {
+        running: false,
+        width: 0,
+        height: 0,
+        dpr: Math.min(2, window.devicePixelRatio || 1),
+        internalScale: 1.0,
+        time: 0,
+        dt: 16.67,
+        lastTime: now(),
+        fpsSMA: 60,
+        score: 0,
+        shards: 0,
+        player: null,
+        keys: {},
+        mouse: { x: 0, y: 0, down: false },
+        entities: [],
+        bullets: [],
+        particles: [],
+        obstacles: [],
+        spawners: [],
+        palette: {
+          a: "#6ef9ff",
+          b: "#ff4df2",
+          c: "#ffd86e",
+          bg1: "#0a0e20",
+          bg2: "#040611"
+        },
+        world: {
+          speed: 140,
+          gridPhase: 0,
+          difficultyMul: 1
+        },
+        graphics: structuredClone(DEFAULTS.graphics),
+        progression: structuredClone(DEFAULTS.progression),
+        gameplay: structuredClone(DEFAULTS.gameplay),
+        flags: {
+          justLeveled: false
+        }
+      };
+
+      const PRESETS = {
+        cinematic: { resScale: 1.5, bloomStrength: 1.35, bloomPasses: 6, motionBlur: true, mbStrength: 0.94, vignette: true, chroma: true, grain: true, particleMul: 3.0, trailQuality: 1.0 },
+        ultra:     { resScale: 1.25, bloomStrength: 1.25, bloomPasses: 5, motionBlur: true, mbStrength: 0.93, vignette: true, chroma: true, grain: true, particleMul: 2.2, trailQuality: 0.9 },
+        high:      { resScale: 1.0,  bloomStrength: 1.0,  bloomPasses: 4, motionBlur: true, mbStrength: 0.92, vignette: true, chroma: false, grain: true, particleMul: 1.5, trailQuality: 0.7 },
+        medium:    { resScale: 0.85, bloomStrength: 0.9,  bloomPasses: 3, motionBlur: true, mbStrength: 0.90, vignette: true, chroma: false, grain: true, particleMul: 1.0, trailQuality: 0.55 },
+        low:       { resScale: 0.75, bloomStrength: 0.7,  bloomPasses: 2, motionBlur: false, mbStrength: 0.88, vignette: false, chroma: false, grain: false, particleMul: 0.6, trailQuality: 0.35 },
+        potato:    { resScale: 0.6,  bloomStrength: 0.5,  bloomPasses: 1, motionBlur: false, mbStrength: 0.85, vignette: false, chroma: false, grain: false, particleMul: 0.25, trailQuality: 0.15 }
+      };
+
+      function save() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          version: DEFAULTS.version,
+          graphics: state.graphics,
+          progression: state.progression,
+          gameplay: state.gameplay
+        }));
+      }
+      function load() {
+        try {
+          const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+          if (s && s.version === DEFAULTS.version) {
+            Object.assign(state.graphics, s.graphics || {});
+            Object.assign(state.progression, s.progression || {});
+            Object.assign(state.gameplay, s.gameplay || {});
+          }
+        } catch {}
+      }
+
+      // Entities
+      class Player {
+        constructor() {
+          this.pos = { x: 0, y: 0 };
+          this.vel = { x: 0, y: 0 };
+          this.speed = 240;
+          this.size = 16;
+          this.color = state.palette.a;
+          this.invuln = 0;
+          this.dashCooldown = 0;
+          this.trail = [];
+          this.trailClock = 0;
+          this.magnet = 0; // upgrade
+          this.shield = 0;
+          this.fireRate = 0;
+        }
+        reset() {
+          this.pos.x = state.width * 0.5;
+          this.pos.y = state.height * 0.7;
+          this.vel.x = 0; this.vel.y = 0;
+          this.invuln = 0;
+          this.dashCooldown = 0;
+          this.trail.length = 0;
+        }
+        dash() {
+          if (this.dashCooldown <= 0) {
+            this.vel.y = -520;
+            this.invuln = 0.25;
+            this.dashCooldown = 1.2 - 0.1 * state.progression.upgrades.speed;
+            spawnBurst(this.pos.x, this.pos.y + 10, 28, state.palette.a);
+          }
+        }
+        update(dt) {
+          this.invuln -= dt; this.dashCooldown -= dt;
+          const accel = this.speed * (1 + 0.06 * state.progression.upgrades.speed);
+          let dx = 0, dy = 0;
+          if (state.keys["ArrowLeft"] || state.keys["a"]) dx -= 1;
+          if (state.keys["ArrowRight"] || state.keys["d"]) dx += 1;
+          if (state.keys["ArrowUp"] || state.keys["w"]) dy -= 1;
+          if (state.keys["ArrowDown"] || state.keys["s"]) dy += 1;
+          if (dx !== 0 || dy !== 0) {
+            const len = Math.hypot(dx, dy) || 1;
+            dx /= len; dy /= len;
+          }
+          // smoothing
+          this.vel.x = lerp(this.vel.x, dx * accel, 0.12);
+          this.vel.y = lerp(this.vel.y, dy * accel, 0.12);
+
+          // world scroll pushes down slightly
+          this.vel.y += state.world.speed * 0.1 * dt;
+
+          this.pos.x += this.vel.x * dt;
+          this.pos.y += this.vel.y * dt;
+          this.pos.x = clamp(this.pos.x, 20, state.width - 20);
+          this.pos.y = clamp(this.pos.y, 20, state.height - 20);
+
+          // trail
+          this.trailClock += dt;
+          const spacing = 0.010 + (1 - state.graphics.trailQuality) * 0.016;
+          if (this.trailClock > spacing) {
+            this.trailClock = 0;
+            this.trail.push({ x: this.pos.x, y: this.pos.y, a: 1.0, s: this.size, c: this.color });
+            if (this.trail.length > 90 * state.graphics.trailQuality + 20) this.trail.shift();
+          }
+          for (const t of this.trail) {
+            t.a *= 0.96;
+            t.s *= 0.993;
+          }
+        }
+        draw(cctx, gctx) {
+          // ship core
+          drawGlowDot(gctx, this.pos.x, this.pos.y, this.size * 1.3, this.color, 1.4);
+          // ship body
+          cctx.save();
+          cctx.translate(this.pos.x, this.pos.y);
+          const angle = Math.atan2(this.vel.y, this.vel.x + 1e-5);
+          cctx.rotate(angle * 0.2);
+          const s = this.size;
+          const grad = cctx.createLinearGradient(0, -s, 0, s);
+          grad.addColorStop(0, "#ffffff");
+          grad.addColorStop(0.5, this.color);
+          grad.addColorStop(1, "#66c6ff");
+          cctx.fillStyle = grad;
+          cctx.beginPath();
+          cctx.moveTo(0, -s * 1.2);
+          cctx.lineTo(s * 0.8, s * 1.2);
+          cctx.lineTo(0, s * 0.6);
+          cctx.lineTo(-s * 0.8, s * 1.2);
+          cctx.closePath();
+          cctx.fill();
+          cctx.restore();
+
+          // trail
+          for (let i = 0; i < this.trail.length; i += 2) {
+            const t = this.trail[i];
+            const a = t.a * 0.55;
+            if (a < 0.01) continue;
+            drawGlowDot(gctx, t.x, t.y, t.s * 1.2, this.color, a);
+          }
+
+          // shield ring
+          if (this.invuln > 0 || state.progression.upgrades.shield > 0) {
+            const rad = this.size * (1.4 + 0.2 * Math.sin(state.time * 6));
+            drawGlowRing(gctx, this.pos.x, this.pos.y, rad, this.color, 0.8);
+          }
+        }
+      }
+
+      class Obstacle {
+        constructor(x, y, r, speed, hue) {
+          this.x = x; this.y = y; this.r = r;
+          this.speed = speed;
+          this.hue = hue;
+          this.dead = false;
+        }
+        update(dt) {
+          this.y += this.speed * dt;
+          if (this.y - this.r > state.height + 60) this.dead = true;
+          // collision
+          const p = state.player;
+          const dx = p.pos.x - this.x, dy = p.pos.y - this.y;
+          const d = Math.hypot(dx, dy);
+          if (!this.dead && d < this.r + p.size * 0.66) {
+            if (p.invuln <= 0 && state.running) {
+              damagePlayer();
+              this.dead = true;
+              spawnBurst(this.x, this.y, 36, `hsl(${this.hue}, 100%, 65%)`);
+            }
+          }
+        }
+        draw(cctx, gctx) {
+          const col = `hsl(${this.hue}, 100%, 60%)`;
+          drawNeonDisc(cctx, gctx, this.x, this.y, this.r, col, 0.85);
+        }
+      }
+
+      class Shard {
+        constructor(x, y) {
+          this.x = x; this.y = y;
+          this.vy = state.world.speed * (0.7 + Math.random() * 0.4);
+          this.life = 8;
+          this.dead = false;
+        }
+        update(dt) {
+          this.y += this.vy * dt;
+          this.life -= dt;
+          const p = state.player;
+          // magnet
+          const mag = 40 + state.progression.upgrades.magnet * 30;
+          const dx = p.pos.x - this.x, dy = p.pos.y - this.y;
+          const d = Math.hypot(dx, dy);
+          if (d < mag) {
+            const f = (mag - d) / mag;
+            this.x += (dx / (d || 1)) * f * 280 * dt;
+            this.y += (dy / (d || 1)) * f * 280 * dt;
+          }
+          if (d < p.size + 8) {
+            collectShard(this.x, this.y);
+            this.dead = true;
+          }
+          if (this.life <= 0 || this.y > state.height + 40) this.dead = true;
+        }
+        draw(cctx, gctx) {
+          drawShard(cctx, gctx, this.x, this.y, 6 + Math.sin((this.life) * 10) * 1.5, state.palette.c);
+        }
+      }
+
+      function damagePlayer() {
+        state.score = Math.max(0, state.score - 50);
+        state.progression.shards = Math.max(0, state.progression.shards - 2);
+        state.player.invuln = 0.6 + 0.08 * state.progression.upgrades.shield;
+        spawnBurst(state.player.pos.x, state.player.pos.y, 44, state.palette.b);
+        showToast("Hit! -50 score", 1000);
+      }
+      function collectShard(x, y) {
+        state.shards += 1;
+        state.progression.shards += 1;
+        state.score += 15;
+        addXP(10);
+        spawnBurst(x, y, 18, state.palette.c);
+      }
+      function addXP(amount) {
+        state.progression.xp += amount;
+        if (state.progression.xp >= state.progression.xpForNext) {
+          state.progression.xp -= state.progression.xpForNext;
+          state.progression.level += 1;
+          state.progression.xpForNext = Math.floor(state.progression.xpForNext * 1.15 + 25);
+          state.flags.justLeveled = true;
+          showToast(`Level Up! → L${state.progression.level}`, 1500);
+          // reward: random upgrade
+          const upKeys = ["speed", "magnet", "shield", "fireRate"];
+          const k = upKeys[Math.floor(Math.random() * upKeys.length)];
+          state.progression.upgrades[k] += 1;
+          showToast(`Upgrade +1 ${k}`, 1400);
+          save();
+        }
+      }
+
+      // Visual Helpers
+      function drawGlowDot(gctx, x, y, r, color, alpha=1) {
+        const grad = gctx.createRadialGradient(x, y, 0, x, y, r * 1.4);
+        grad.addColorStop(0, withAlpha(color, alpha * 0.9));
+        grad.addColorStop(1, withAlpha(color, 0));
+        gctx.fillStyle = grad;
+        gctx.beginPath(); gctx.arc(x, y, r * 1.6, 0, Math.PI * 2); gctx.fill();
+      }
+      function drawGlowRing(gctx, x, y, r, color, alpha=1) {
+        const thickness = Math.max(2, r * 0.22);
+        const inner = r - thickness * 0.5;
+        const outer = r + thickness * 0.5;
+        const grad = gctx.createRadialGradient(x, y, inner, x, y, outer);
+        grad.addColorStop(0, withAlpha(color, 0));
+        grad.addColorStop(0.5, withAlpha(color, alpha * 0.8));
+        grad.addColorStop(1, withAlpha(color, 0));
+        gctx.fillStyle = grad;
+        gctx.beginPath(); gctx.arc(x, y, outer, 0, Math.PI * 2); gctx.fill();
+      }
+      function drawNeonDisc(cctx, gctx, x, y, r, color, glow=1) {
+        drawGlowDot(gctx, x, y, r * 1.4, color, glow);
+        const grad = cctx.createRadialGradient(x, y, 0, x, y, r);
+        grad.addColorStop(0, "#fff");
+        grad.addColorStop(0.4, color);
+        grad.addColorStop(1, "#0a0d1f");
+        cctx.fillStyle = grad;
+        cctx.beginPath(); cctx.arc(x, y, r, 0, Math.PI * 2); cctx.fill();
+
+        cctx.strokeStyle = color;
+        cctx.globalAlpha = 0.7;
+        cctx.lineWidth = 2;
+        cctx.beginPath(); cctx.arc(x, y, r*0.7, 0, Math.PI * 2); cctx.stroke();
+        cctx.globalAlpha = 1;
+      }
+      function drawShard(cctx, gctx, x, y, s, color) {
+        drawGlowDot(gctx, x, y, s * 2, color, 1.0);
+        cctx.save();
+        cctx.translate(x, y);
+        cctx.rotate((Math.sin((state.time + x + y) * 3) * 0.5));
+        const grad = cctx.createLinearGradient(0, -s, 0, s);
+        grad.addColorStop(0, "#fff");
+        grad.addColorStop(1, color);
+        cctx.fillStyle = grad;
+        cctx.beginPath();
+        cctx.moveTo(0, -s*1.3);
+        cctx.lineTo(s*0.9, 0);
+        cctx.lineTo(0, s*1.3);
+        cctx.lineTo(-s*0.9, 0);
+        cctx.closePath();
+        cctx.fill();
+        cctx.restore();
+      }
+      function withAlpha(hexOrHsl, alpha) {
+        if (/^#/.test(hexOrHsl)) {
+          // expand shorthand
+          let h = hexOrHsl.replace('#', '');
+          if (h.length === 3) h = h.split('').map(ch => ch + ch).join('');
+          const r = parseInt(h.slice(0,2),16);
+          const g = parseInt(h.slice(2,4),16);
+          const b = parseInt(h.slice(4,6),16);
+          return `rgba(${r},${g},${b},${alpha})`;
+        }
+        if (/^hsl/.test(hexOrHsl)) {
+          return hexOrHsl.replace('hsl', 'hsla').replace(')', `, ${alpha})`);
+        }
+        return hexOrHsl;
+      }
+
+      // Particles
+      function spawnBurst(x, y, n, color) {
+        const mul = 1 + state.graphics.particleMul;
+        for (let i = 0; i < n * mul; i++) {
+          state.particles.push({
+            x, y,
+            vx: Math.cos(i * (Math.PI*2) / n + rnd(-0.2, 0.2)) * rnd(60, 300),
+            vy: Math.sin(i * (Math.PI*2) / n + rnd(-0.2, 0.2)) * rnd(60, 300),
+            life: rnd(0.3, 1.2),
+            max: 1.2,
+            color
+          });
+        }
+      }
+      function updateParticles(dt) {
+        for (const p of state.particles) {
+          p.life -= dt;
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vx *= 0.98; p.vy *= 0.98;
+        }
+        state.particles = state.particles.filter(p => p.life > 0);
+      }
+      function drawParticles(cctx, gctx) {
+        for (const p of state.particles) {
+          const a = Math.max(0, p.life / p.max);
+          if (a < 0.02) continue;
+          drawGlowDot(gctx, p.x, p.y, (1 - a) * 8 + 3, p.color, a * 1.2);
+          cctx.globalAlpha = a;
+          cctx.fillStyle = "#fff";
+          cctx.beginPath();
+          cctx.arc(p.x, p.y, 1.2 + (1 - a) * 1.1, 0, Math.PI*2);
+          cctx.fill();
+          cctx.globalAlpha = 1;
+        }
+      }
+
+      // Spawners and waves
+      function spawnInitial() {
+        state.obstacles.length = 0;
+        state.particles.length = 0;
+        state.entities.length = 0;
+        state.bullets.length = 0;
+        state.shards = 0;
+        state.score = 0;
+      }
+      function spawnTick(dt) {
+        const base = 0.9 - (0.08 * Math.log2(1 + state.progression.level));
+        if (!spawnTick.timer) spawnTick.timer = base;
+        spawnTick.timer -= dt;
+        if (spawnTick.timer <= 0) {
+          spawnTick.timer = Math.max(0.22, base * rnd(0.5, 1.2));
+          const r = rnd(14, 28) * (1 + 0.02 * state.progression.level);
+          const x = rnd(40, state.width - 40);
+          const hue = rnd(180, 320);
+          const speed = state.world.speed * rnd(0.8, 1.35) * (1 + 0.02 * state.progression.level);
+          state.obstacles.push(new Obstacle(x, -r - 20, r, speed, hue));
+          if (Math.random() < 0.55) {
+            state.entities.push(new Shard(x + rnd(-50, 50), -r - 60));
+          }
+        }
+      }
+
+      // Background grid and atmosphere
+      function drawBackground(cctx) {
+        // Gradient background
+        const g = cctx.createLinearGradient(0, 0, 0, state.height);
+        g.addColorStop(0, "#070b1a");
+        g.addColorStop(0.5, "#050816");
+        g.addColorStop(1, "#030510");
+        cctx.fillStyle = g;
+        cctx.fillRect(0, 0, state.width, state.height);
+
+        // Starfield parallax layers
+        const t = state.time;
+        drawStars(cctx, 50, 0.4, 0.25, t * 0.1);
+        drawStars(cctx, 110, 0.8, 0.5, -t * 0.07);
+
+        // Perspective grid
+        state.world.gridPhase += state.world.speed * 0.8 * state.dt;
+        const horizon = state.height * 0.32;
+        const vanX = state.width * 0.5;
+        const vanY = horizon;
+
+        cctx.strokeStyle = "rgba(110,249,255,0.25)";
+        cctx.lineWidth = 1;
+        // Horizontal lines (spaced exponentially for perspective)
+        for (let i = 0; i < 24; i++) {
+          const p = i / 24;
+          const y = horizon + Math.pow(p, 2.6) * (state.height - horizon);
+          cctx.globalAlpha = 0.6 - p * 0.5;
+          cctx.beginPath();
+          cctx.moveTo(0, y + (state.world.gridPhase % 20));
+          cctx.lineTo(state.width, y + (state.world.gridPhase % 20));
+          cctx.stroke();
+        }
+        // Vertical lines toward vanishing point
+        cctx.globalAlpha = 0.75;
+        for (let i = -12; i <= 12; i++) {
+          const x = i * 60;
+          cctx.beginPath();
+          cctx.moveTo(vanX + x, vanY);
+          cctx.lineTo(vanX + x * 4, state.height);
+          cctx.stroke();
+        }
+
+        cctx.globalAlpha = 1;
+        // Atmosphere glow on horizon
+        const hGrad = cctx.createRadialGradient(vanX, vanY, 10, vanX, vanY, state.height * 0.9);
+        hGrad.addColorStop(0, "rgba(110,249,255,0.18)");
+        hGrad.addColorStop(0.35, "rgba(255,77,242,0.12)");
+        hGrad.addColorStop(1, "rgba(0,0,0,0)");
+        cctx.fillStyle = hGrad;
+        cctx.beginPath();
+        cctx.arc(vanX, vanY, state.height * 1.2, 0, Math.PI * 2);
+        cctx.fill();
+      }
+      function drawStars(cctx, count, scale, alpha, offset=0) {
+        cctx.save();
+        cctx.globalAlpha = alpha;
+        for (let i = 0; i < count * state.graphics.particleMul; i++) {
+          const x = (i * 199) % state.width;
+          const y = ((i * 97) % state.height) * scale + (offset * 80 % state.height);
+          const s = (i % 7) * 0.2 + 0.6;
+          cctx.fillStyle = i % 3 === 0 ? "#9fe3ff" : i % 3 === 1 ? "#ffb8f7" : "#e8f0ff";
+          cctx.fillRect((x + i * 37) % state.width, y % state.height, s, s);
+        }
+        cctx.restore();
+      }
+
+      // Render pipeline: scene -> bloom downsample -> composite -> motion blur -> chroma -> screen
+      function resizeCanvases() {
+        const rect = canvas.getBoundingClientRect();
+        const w = Math.max(320, Math.floor(rect.width));
+        const h = Math.max(240, Math.floor(rect.height));
+        // physical pixels
+        const internalScale = state.graphics.resScale * state.dpr;
+        const pw = Math.floor(w * internalScale);
+        const ph = Math.floor(h * internalScale);
+
+        function setSize(c, W, H) { c.width = W; c.height = H; }
+
+        setSize(canvas, w * state.dpr, h * state.dpr);
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+
+        for (const k in buffers) setSize(buffers[k], pw, ph);
+
+        state.width = pw;
+        state.height = ph;
+        state.internalScale = internalScale;
+        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0); // ensure crisp UI scaling
+      }
+
+      function clearBuffer(c, color="#000000") {
+        const cctx = c.getContext("2d");
+        cctx.setTransform(1,0,0,1,0,0);
+        cctx.globalCompositeOperation = "source-over";
+        cctx.globalAlpha = 1;
+        cctx.fillStyle = color;
+        cctx.fillRect(0, 0, c.width, c.height);
+      }
+
+      // Bloom via multi-resolution downsample and additive upsample
+      function applyBloom() {
+        // Downsample cascade
+        const passes = clamp(state.graphics.bloomPasses|0, 1, 6);
+        const chain = [buffers.glow];
+        bctx.temp.imageSmoothingEnabled = true;
+        bctx.temp2.imageSmoothingEnabled = true;
+
+        let src = buffers.glow;
+        for (let i = 0; i < passes; i++) {
+          const scale = Math.pow(0.5, i + 1);
+          const w = Math.max(2, Math.floor(buffers.glow.width * scale));
+          const h = Math.max(2, Math.floor(buffers.glow.height * scale));
+          buffers.temp.width = w; buffers.temp.height = h;
+          bctx.temp.clearRect(0, 0, w, h);
+          // soft downsample
+          bctx.temp.globalAlpha = 1;
+          bctx.temp.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h);
+          chain.push(buffers.temp.cloneNode(true)); // clone canvas with same size
+          // copy content to the cloned node
+          const last = chain[chain.length - 1].getContext("2d");
+          last.drawImage(buffers.temp, 0, 0);
+          src = chain[chain.length - 1];
+        }
+
+        // Clear glow and rebuild by upsampling additively
+        clearBuffer(buffers.glow, "rgba(0,0,0,0)");
+        bctx.glow.globalCompositeOperation = "lighter";
+        for (let i = chain.length - 1; i >= 1; i--) {
+          const img = chain[i];
+          bctx.glow.globalAlpha = 0.85;
+          bctx.glow.drawImage(img, 0, 0, img.width, img.height, 0, 0, buffers.glow.width, buffers.glow.height);
+        }
+        bctx.glow.globalCompositeOperation = "source-over";
+        bctx.glow.globalAlpha = clamp(state.graphics.bloomStrength, 0, 3);
+      }
+
+      function composite() {
+        const cctx = bctx.compose;
+        clearBuffer(buffers.compose, "#000");
+
+        // Motion blur accumulation
+        if (state.graphics.motionBlur) {
+          cctx.globalAlpha = clamp(state.graphics.mbStrength, 0.8, 0.98);
+          cctx.drawImage(buffers.lastFrame, 0, 0);
+          cctx.globalAlpha = 1;
+        }
+
+        // Draw scene and add bloom
+        cctx.drawImage(buffers.scene, 0, 0);
+        cctx.globalCompositeOperation = "lighter";
+        cctx.drawImage(buffers.glow, 0, 0);
+        cctx.globalCompositeOperation = "source-over";
+
+        // Vignette
+        if (state.graphics.vignette) {
+          const vg = cctx.createRadialGradient(state.width * 0.5, state.height * 0.55, 10, state.width * 0.5, state.height * 0.55, Math.max(state.width, state.height) * 0.65);
+          vg.addColorStop(0, "rgba(0,0,0,0)");
+          vg.addColorStop(1, "rgba(0,0,0,0.45)");
+          cctx.fillStyle = vg;
+          cctx.fillRect(0, 0, state.width, state.height);
+        }
+
+        // Save to lastFrame (for next motion blur)
+        bctx.lastFrame.globalAlpha = 1;
+        bctx.lastFrame.globalCompositeOperation = "source-over";
+        bctx.lastFrame.drawImage(buffers.compose, 0, 0);
+
+        // Chromatic aberration composite to screen
+        if (state.graphics.chroma) {
+          // Prepare channels
+          const shift = Math.floor(1 + Math.max(state.width, state.height) * 0.003); // small offset
+          // R
+          clearBuffer(buffers.r, "rgba(0,0,0,0)");
+          bctx.r.drawImage(buffers.compose, 0, 0);
+          bctx.r.globalCompositeOperation = "source-in";
+          bctx.r.fillStyle = "rgba(255,0,0,1)";
+          bctx.r.fillRect(0, 0, state.width, state.height);
+          // G
+          clearBuffer(buffers.g, "rgba(0,0,0,0)");
+          bctx.g.drawImage(buffers.compose, 0, 0);
+          bctx.g.globalCompositeOperation = "source-in";
+          bctx.g.fillStyle = "rgba(0,255,0,1)";
+          bctx.g.fillRect(0, 0, state.width, state.height);
+          // B
+          clearBuffer(buffers.b, "rgba(0,0,0,0)");
+          bctx.b.drawImage(buffers.compose, 0, 0);
+          bctx.b.globalCompositeOperation = "source-in";
+          bctx.b.fillStyle = "rgba(0,0,255,1)";
+          bctx.b.fillRect(0, 0, state.width, state.height);
+
+          // Draw to screen with small offsets
+          ctx.setTransform(1,0,0,1,0,0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.globalCompositeOperation = "lighter";
+          ctx.globalAlpha = 0.9;
+          ctx.drawImage(buffers.r, -shift, 0, canvas.width, canvas.height);
+          ctx.drawImage(buffers.g, 0, 0, canvas.width, canvas.height);
+          ctx.drawImage(buffers.b, shift, 0, canvas.width, canvas.height);
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = "source-over";
+        } else {
+          // No chroma: draw compose directly to screen
+          ctx.setTransform(1,0,0,1,0,0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(buffers.compose, 0, 0, canvas.width, canvas.height);
+        }
+      }
+
+      // Main render of world into buffers.scene and buffers.glow
+      function renderWorld() {
+        const cctx = bctx.scene;
+        const gctx = bctx.glow;
+
+        // Clear layer contents
+        clearBuffer(buffers.scene, "#000");
+        clearBuffer(buffers.glow, "rgba(0,0,0,0)");
+
+        // Background and atmosphere
+        drawBackground(cctx);
+
+        // Entities
+        for (const o of state.obstacles) o.draw(cctx, gctx);
+        for (const e of state.entities) e.draw(cctx, gctx);
+        // Player
+        state.player.draw(cctx, gctx);
+        // Particles
+        drawParticles(cctx, gctx);
+
+        // HUD-lined horizon flare
+        const horizonY = state.height * 0.32;
+        drawGlowDot(gctx, state.width * 0.5, horizonY, 200, "rgba(255,255,255,1)", 0.18 * state.graphics.bloomStrength);
+      }
+
+      // Update
+      function update(dt) {
+        // Auto scale guard: if FPS dips below 45, reduce resScale slightly; if above 58, gently restore
+        if (state.graphics.autoScale) {
+          if (state.fpsSMA < 45 && state.graphics.resScale > 0.6) {
+            state.graphics.resScale = Math.max(0.6, state.graphics.resScale - 0.05);
+            resizeCanvases();
+          } else if (state.fpsSMA > 58 && state.graphics.resScale < (PRESETS[state.graphics.preset] ? PRESETS[state.graphics.preset].resScale : 1.0)) {
+            state.graphics.resScale = Math.min(PRESETS[state.graphics.preset].resScale, state.graphics.resScale + 0.02);
+            resizeCanvases();
+          }
+        }
+
+        // Update difficulty multiplier
+        state.world.difficultyMul = ({relaxed:0.8, normal:1, hard:1.2, insane:1.45})[state.gameplay.difficulty] || 1;
+        const diffMul = state.world.difficultyMul;
+
+        // Player
+        state.player.update(dt);
+
+        // Spawning and world speed scaling
+        state.world.speed = 140 * diffMul * (1 + 0.03 * state.progression.level);
+        spawnTick(dt);
+
+        // Update obstacles and entities
+        for (const o of state.obstacles) o.update(dt);
+        state.obstacles = state.obstacles.filter(o => !o.dead);
+
+        for (const e of state.entities) e.update(dt);
+        state.entities = state.entities.filter(e => !e.dead);
+
+        updateParticles(dt);
+
+        // Scoring over time
+        state.score += dt * 10 * diffMul;
+        if (Math.random() < 0.02 * dt) addXP(1);
+
+        // UI
+        ui.score.textContent = "Score: " + Math.floor(state.score);
+        ui.shards.textContent = "Shards: " + Math.floor(state.progression.shards);
+        ui.level.textContent = "Level: " + state.progression.level;
+
+        const xpPct = clamp(state.progression.xp / state.progression.xpForNext, 0, 1) * 100;
+        ui.xpFill.style.width = xpPct + "%";
+        ui.progressText.textContent = `XP ${Math.floor(state.progression.xp)}/${state.progression.xpForNext}`;
+
+        // Save occasionally
+        if (!update.saveTimer) update.saveTimer = 0;
+        update.saveTimer += dt;
+        if (update.saveTimer > 4) { update.saveTimer = 0; save(); }
+      }
+
+      // Main loop
+      function loop() {
+        const t = now();
+        let dt = (t - state.lastTime) / 1000;
+        state.lastTime = t;
+        dt = Math.min(0.033, dt); // clamp
+        state.time += dt;
+        state.dt = dt;
+
+        // FPS smoothing
+        const fps = 1 / (dt || 1/60);
+        state.fpsSMA = state.fpsSMA * 0.92 + fps * 0.08;
+        ui.fps.textContent = "FPS: " + Math.round(state.fpsSMA);
+
+        if (state.running) {
+          update(dt);
+          renderWorld();
+          applyBloom();
+          composite();
+        } else {
+          // Idle attract effect: render world with slow motion
+          update(dt * 0.35);
+          renderWorld();
+          applyBloom();
+          composite();
+        }
+
+        requestAnimationFrame(loop);
+      }
+
+      // Controls / UI
+      function showToast(text, duration=1200) {
+        const el = ui.toast;
+        el.textContent = text;
+        el.classList.add("show");
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => el.classList.remove("show"), duration);
+      }
+
+      function applyPreset(name) {
+        const p = PRESETS[name];
+        if (!p) return;
+        Object.assign(state.graphics, p);
+        state.graphics.preset = name;
+        syncSettingsUI();
+        resizeCanvases();
+        showToast(`Preset: ${name.toUpperCase()}`);
+        save();
+      }
+
+      function syncSettingsUI() {
+        ui.preset.value = state.graphics.preset || "custom";
+
+        ui.resScale.value = state.graphics.resScale.toFixed(2);
+        ui.resScaleNum.value = state.graphics.resScale.toFixed(2);
+
+        ui.bloomStrength.value = state.graphics.bloomStrength.toFixed(2);
+        ui.bloomStrengthNum.value = state.graphics.bloomStrength.toFixed(2);
+
+        ui.bloomPasses.value = state.graphics.bloomPasses|0;
+        ui.bloomPassesNum.value = state.graphics.bloomPasses|0;
+
+        ui.motionBlur.checked = !!state.graphics.motionBlur;
+
+        ui.mbStrength.value = state.graphics.mbStrength.toFixed(2);
+        ui.mbStrengthNum.value = state.graphics.mbStrength.toFixed(2);
+
+        ui.vignette.checked = !!state.graphics.vignette;
+        ui.chroma.checked = !!state.graphics.chroma;
+        ui.grainToggle.checked = !!state.graphics.grain;
+
+        ui.particleMul.value = state.graphics.particleMul.toFixed(2);
+        ui.particleMulNum.value = state.graphics.particleMul.toFixed(2);
+
+        ui.trailQuality.value = state.graphics.trailQuality.toFixed(2);
+        ui.trailQualityNum.value = state.graphics.trailQuality.toFixed(2);
+
+        ui.difficulty.value = state.gameplay.difficulty || "normal";
+        ui.autoScale.checked = !!state.graphics.autoScale;
+        overlayGrain.style.opacity = state.graphics.grain ? "0.15" : "0";
+      }
+
+      function readSettingsUI() {
+        const g = state.graphics;
+        const toNum = (el, min, max, def) => clamp(parseFloat(el.value || def), min, max);
+
+        g.resScale = toNum(ui.resScale, 0.5, 1.5, 1.0);
+        g.bloomStrength = toNum(ui.bloomStrength, 0, 2, 1.0);
+        g.bloomPasses = toNum(ui.bloomPasses, 1, 6, 4);
+        g.motionBlur = !!ui.motionBlur.checked;
+        g.mbStrength = toNum(ui.mbStrength, 0.8, 0.98, 0.92);
+        g.vignette = !!ui.vignette.checked;
+        g.chroma = !!ui.chroma.checked;
+        g.grain = !!ui.grainToggle.checked;
+        g.particleMul = toNum(ui.particleMul, 0, 3, 1.5);
+        g.trailQuality = toNum(ui.trailQuality, 0, 1, 0.7);
+        g.autoScale = !!ui.autoScale.checked;
+
+        state.gameplay.difficulty = ui.difficulty.value;
+        // mark as custom if any difference from preset
+        const p = PRESETS[g.preset] || {};
+        const diff =
+          Math.abs(g.resScale - (p.resScale ?? 1.0)) > 0.001 ||
+          Math.abs(g.bloomStrength - (p.bloomStrength ?? 1.0)) > 0.001 ||
+          (g.bloomPasses|0) !== (p.bloomPasses|0) ||
+          !!g.motionBlur !== !!p.motionBlur ||
+          Math.abs(g.mbStrength - (p.mbStrength ?? 0.92)) > 0.001 ||
+          !!g.vignette !== !!p.vignette ||
+          !!g.chroma !== !!p.chroma ||
+          !!g.grain !== !!p.grain ||
+          Math.abs(g.particleMul - (p.particleMul ?? 1.5)) > 0.001 ||
+          Math.abs(g.trailQuality - (p.trailQuality ?? 0.7)) > 0.001;
+        if (diff) {
+          g.preset = "custom";
+        }
+        overlayGrain.style.opacity = g.grain ? "0.15" : "0";
+      }
+
+      function wireSettingsUI() {
+        // link range <-> number controls
+        const link = (range, num, min, max, step=0.01, round=2) => {
+          const sync = (el) => {
+            let v = clamp(parseFloat(el.value || 0), min, max);
+            v = Math.round(v / step) * step;
+            range.value = v.toFixed(round);
+            num.value = v.toFixed(round);
+          };
+          range.addEventListener("input", () => sync(range));
+          num.addEventListener("input", () => sync(num));
+        };
+        link(ui.resScale, ui.resScaleNum, 0.5, 1.5, 0.05, 2);
+        link(ui.bloomStrength, ui.bloomStrengthNum, 0, 2, 0.05, 2);
+        link(ui.bloomPasses, ui.bloomPassesNum, 1, 6, 1, 0);
+        link(ui.mbStrength, ui.mbStrengthNum, 0.8, 0.98, 0.01, 2);
+        link(ui.particleMul, ui.particleMulNum, 0, 3, 0.25, 2);
+        link(ui.trailQuality, ui.trailQualityNum, 0, 1, 0.05, 2);
+
+        ui.applyBtn.addEventListener("click", () => {
+          readSettingsUI();
+          resizeCanvases();
+          save();
+          showToast("Settings Applied");
+        });
+        ui.closeBtn.addEventListener("click", () => {
+          ui.panel.classList.remove("show");
+        });
+        ui.preset.addEventListener("change", () => {
+          const p = ui.preset.value;
+          if (p !== "custom") applyPreset(p);
+        });
+        ui.resetBtn.addEventListener("click", () => {
+          if (confirm("Reset all progression?")) {
+            state.progression = structuredClone(DEFAULTS.progression);
+            save();
+            showToast("Progress Reset");
+          }
+        });
+      }
+
+      // Input
+      window.addEventListener("keydown", (e) => {
+        if (["g","G"].includes(e.key)) {
+          ui.panel.classList.toggle("show");
+        } else if (["p","P"].includes(e.key)) {
+          toggleRun();
+        } else if (e.code === "Space") {
+          e.preventDefault();
+          state.player.dash();
+        } else {
+          state.keys[e.key] = true;
+        }
+      }, { passive: false });
+      window.addEventListener("keyup", (e) => { state.keys[e.key] = false; });
+      window.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        state.mouse.x = (e.clientX - rect.left) * state.dpr * state.graphics.resScale;
+        state.mouse.y = (e.clientY - rect.top) * state.dpr * state.graphics.resScale;
+      });
+      window.addEventListener("mousedown", () => state.mouse.down = true);
+      window.addEventListener("mouseup", () => state.mouse.down = false);
+
+      function toggleRun() {
+        state.running = !state.running;
+        ui.btnPlayPause.textContent = state.running ? "⏸ Pause" : "▶ Start";
+        ui.splash.style.display = state.running ? "none" : "block";
+      }
+
+      ui.btnPlayPause.addEventListener("click", toggleRun);
+      ui.btnSettings.addEventListener("click", () => ui.panel.classList.toggle("show"));
+
+      // Setup + start
+      function init() {
+        load();
+        // player
+        state.player = new Player();
+        resizeCanvases();
+        spawnInitial();
+        state.player.reset();
+        // presets apply to UI
+        if (!PRESETS[state.graphics.preset]) state.graphics.preset = "high";
+        applyPreset(state.graphics.preset);
+        syncSettingsUI();
+        wireSettingsUI();
+
+        // Resize handling
+        let resizeTimer;
+        const onResize = () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            state.dpr = Math.min(2, window.devicePixelRatio || 1);
+            resizeCanvases();
+            state.player.reset();
+          }, 100);
+        };
+        window.addEventListener("resize", onResize);
+
+        // initial draw
+        loop();
+      }
+
+      // Kick off
+      init();
+
+    })();
+  </script>
+</body>
+</html>
