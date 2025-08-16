@@ -239,6 +239,7 @@
       display: none;
       pointer-events: none;
       font-weight: 700;
+      z-index: 1000;
     }
     .toast.show { display: block; }
     .kbd {
@@ -253,9 +254,22 @@
       color: #d6e9ff;
       text-shadow: 0 0 8px rgba(110,249,255,0.3);
     }
-    /* Hide scrollbars for settings panel on some browsers */
-    .panel::-webkit-scrollbar { width: 10px; }
-    .panel::-webkit-scrollbar-thumb { background: rgba(110,249,255,0.18); border-radius: 8px; }
+    .errorOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 12, 22, 0.92);
+      border-top: 2px solid #ff6e8f;
+      color: #ffd6df;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      z-index: 2000;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+    .errorOverlay.show { display: flex; }
   </style>
 </head>
 <body>
@@ -390,13 +404,33 @@
     </div>
 
     <div id="toast" class="toast"></div>
+    <div id="errorOverlay" class="errorOverlay"></div>
   </div>
 
   <script>
     (() => {
-      const STORAGE_KEY = "NEON_ASCENT_SAVE_V1";
+      const showFatal = (msg) => {
+        try {
+          const el = document.getElementById("errorOverlay");
+          if (el) {
+            el.innerHTML = "A critical error occurred:<br><br>" + (msg + "").replace(/</g, "&lt;") + "<br><br>Try reloading or using another browser.";
+            el.classList.add("show");
+          } else { alert(msg); }
+        } catch {}
+      };
+
+      // Safe structured clone fallback for older browsers
+      const safeClone = (obj) => {
+        try {
+          if (typeof structuredClone === "function") return structuredClone(obj);
+        } catch {}
+        try { return JSON.parse(JSON.stringify(obj)); }
+        catch { return obj; }
+      };
+
+      const STORAGE_KEY = "NEON_ASCENT_SAVE_V2";
       const DEFAULTS = {
-        version: 1,
+        version: 2,
         graphics: {
           preset: "high",
           resScale: 1.0,
@@ -417,12 +451,7 @@
           xpForNext: 100,
           shards: 0,
           bestScore: 0,
-          upgrades: {
-            speed: 0,
-            magnet: 0,
-            shield: 0,
-            fireRate: 0
-          }
+          upgrades: { speed: 0, magnet: 0, shield: 0, fireRate: 0 }
         },
         gameplay: { difficulty: "normal" }
       };
@@ -433,7 +462,9 @@
       function now() { return performance.now(); }
 
       const canvas = document.getElementById("game");
-      const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true, willReadFrequently: false });
+      const ctx = canvas.getContext("2d", { alpha: true });
+
+      if (!ctx) { showFatal("Canvas 2D context not available."); return; }
 
       const overlayGrain = document.querySelector(".grain");
 
@@ -442,24 +473,20 @@
         scene: document.createElement("canvas"),
         glow: document.createElement("canvas"),
         compose: document.createElement("canvas"),
-        lastFrame: document.createElement("canvas"), // for motion blur
-        temp: document.createElement("canvas"), // for blurs/downsample
-        temp2: document.createElement("canvas"), // more passes / chroma
+        lastFrame: document.createElement("canvas"),
+        temp: document.createElement("canvas"),
+        temp2: document.createElement("canvas"),
         r: document.createElement("canvas"),
         g: document.createElement("canvas"),
         b: document.createElement("canvas")
       };
-      const bctx = {
-        scene: buffers.scene.getContext("2d"),
-        glow: buffers.glow.getContext("2d"),
-        compose: buffers.compose.getContext("2d"),
-        lastFrame: buffers.lastFrame.getContext("2d"),
-        temp: buffers.temp.getContext("2d"),
-        temp2: buffers.temp2.getContext("2d"),
-        r: buffers.r.getContext("2d"),
-        g: buffers.g.getContext("2d"),
-        b: buffers.b.getContext("2d")
-      };
+      const bctx = {};
+      for (const k in buffers) {
+        const c = buffers[k];
+        const gc = c.getContext("2d");
+        if (!gc) { showFatal("Failed to create offscreen 2D contexts."); return; }
+        bctx[k] = gc;
+      }
 
       const ui = {
         score: document.getElementById("hudScore"),
@@ -531,12 +558,10 @@
           gridPhase: 0,
           difficultyMul: 1
         },
-        graphics: structuredClone(DEFAULTS.graphics),
-        progression: structuredClone(DEFAULTS.progression),
-        gameplay: structuredClone(DEFAULTS.gameplay),
-        flags: {
-          justLeveled: false
-        }
+        graphics: safeClone(DEFAULTS.graphics),
+        progression: safeClone(DEFAULTS.progression),
+        gameplay: safeClone(DEFAULTS.gameplay),
+        flags: { justLeveled: false }
       };
 
       const PRESETS = {
@@ -549,12 +574,14 @@
       };
 
       function save() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: DEFAULTS.version,
-          graphics: state.graphics,
-          progression: state.progression,
-          gameplay: state.gameplay
-        }));
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            version: DEFAULTS.version,
+            graphics: state.graphics,
+            progression: state.progression,
+            gameplay: state.gameplay
+          }));
+        } catch {}
       }
       function load() {
         try {
@@ -579,9 +606,6 @@
           this.dashCooldown = 0;
           this.trail = [];
           this.trailClock = 0;
-          this.magnet = 0; // upgrade
-          this.shield = 0;
-          this.fireRate = 0;
         }
         reset() {
           this.pos.x = state.width * 0.5;
@@ -611,11 +635,8 @@
             const len = Math.hypot(dx, dy) || 1;
             dx /= len; dy /= len;
           }
-          // smoothing
           this.vel.x = lerp(this.vel.x, dx * accel, 0.12);
           this.vel.y = lerp(this.vel.y, dy * accel, 0.12);
-
-          // world scroll pushes down slightly
           this.vel.y += state.world.speed * 0.1 * dt;
 
           this.pos.x += this.vel.x * dt;
@@ -623,7 +644,6 @@
           this.pos.x = clamp(this.pos.x, 20, state.width - 20);
           this.pos.y = clamp(this.pos.y, 20, state.height - 20);
 
-          // trail
           this.trailClock += dt;
           const spacing = 0.010 + (1 - state.graphics.trailQuality) * 0.016;
           if (this.trailClock > spacing) {
@@ -631,24 +651,17 @@
             this.trail.push({ x: this.pos.x, y: this.pos.y, a: 1.0, s: this.size, c: this.color });
             if (this.trail.length > 90 * state.graphics.trailQuality + 20) this.trail.shift();
           }
-          for (const t of this.trail) {
-            t.a *= 0.96;
-            t.s *= 0.993;
-          }
+          for (const t of this.trail) { t.a *= 0.96; t.s *= 0.993; }
         }
         draw(cctx, gctx) {
-          // ship core
           drawGlowDot(gctx, this.pos.x, this.pos.y, this.size * 1.3, this.color, 1.4);
-          // ship body
           cctx.save();
           cctx.translate(this.pos.x, this.pos.y);
           const angle = Math.atan2(this.vel.y, this.vel.x + 1e-5);
           cctx.rotate(angle * 0.2);
           const s = this.size;
           const grad = cctx.createLinearGradient(0, -s, 0, s);
-          grad.addColorStop(0, "#ffffff");
-          grad.addColorStop(0.5, this.color);
-          grad.addColorStop(1, "#66c6ff");
+          grad.addColorStop(0, "#ffffff"); grad.addColorStop(0.5, this.color); grad.addColorStop(1, "#66c6ff");
           cctx.fillStyle = grad;
           cctx.beginPath();
           cctx.moveTo(0, -s * 1.2);
@@ -659,15 +672,12 @@
           cctx.fill();
           cctx.restore();
 
-          // trail
           for (let i = 0; i < this.trail.length; i += 2) {
             const t = this.trail[i];
-            const a = t.a * 0.55;
-            if (a < 0.01) continue;
-            drawGlowDot(gctx, t.x, t.y, t.s * 1.2, this.color, a);
+            if (t.a < 0.02) continue;
+            drawGlowDot(gctx, t.x, t.y, t.s * 1.2, this.color, t.a * 0.55);
           }
 
-          // shield ring
           if (this.invuln > 0 || state.progression.upgrades.shield > 0) {
             const rad = this.size * (1.4 + 0.2 * Math.sin(state.time * 6));
             drawGlowRing(gctx, this.pos.x, this.pos.y, rad, this.color, 0.8);
@@ -678,21 +688,17 @@
       class Obstacle {
         constructor(x, y, r, speed, hue) {
           this.x = x; this.y = y; this.r = r;
-          this.speed = speed;
-          this.hue = hue;
-          this.dead = false;
+          this.speed = speed; this.hue = hue; this.dead = false;
         }
         update(dt) {
           this.y += this.speed * dt;
           if (this.y - this.r > state.height + 60) this.dead = true;
-          // collision
           const p = state.player;
           const dx = p.pos.x - this.x, dy = p.pos.y - this.y;
           const d = Math.hypot(dx, dy);
           if (!this.dead && d < this.r + p.size * 0.66) {
             if (p.invuln <= 0 && state.running) {
-              damagePlayer();
-              this.dead = true;
+              damagePlayer(); this.dead = true;
               spawnBurst(this.x, this.y, 36, `hsl(${this.hue}, 100%, 65%)`);
             }
           }
@@ -704,17 +710,10 @@
       }
 
       class Shard {
-        constructor(x, y) {
-          this.x = x; this.y = y;
-          this.vy = state.world.speed * (0.7 + Math.random() * 0.4);
-          this.life = 8;
-          this.dead = false;
-        }
+        constructor(x, y) { this.x = x; this.y = y; this.vy =  state.world.speed * (0.7 + Math.random() * 0.4); this.life = 8; this.dead = false; }
         update(dt) {
-          this.y += this.vy * dt;
-          this.life -= dt;
+          this.y += this.vy * dt; this.life -= dt;
           const p = state.player;
-          // magnet
           const mag = 40 + state.progression.upgrades.magnet * 30;
           const dx = p.pos.x - this.x, dy = p.pos.y - this.y;
           const d = Math.hypot(dx, dy);
@@ -723,15 +722,10 @@
             this.x += (dx / (d || 1)) * f * 280 * dt;
             this.y += (dy / (d || 1)) * f * 280 * dt;
           }
-          if (d < p.size + 8) {
-            collectShard(this.x, this.y);
-            this.dead = true;
-          }
+          if (d < p.size + 8) { collectShard(this.x, this.y); this.dead = true; }
           if (this.life <= 0 || this.y > state.height + 40) this.dead = true;
         }
-        draw(cctx, gctx) {
-          drawShard(cctx, gctx, this.x, this.y, 6 + Math.sin((this.life) * 10) * 1.5, state.palette.c);
-        }
+        draw(cctx, gctx) { drawShard(cctx, gctx, this.x, this.y, 6 + Math.sin((this.life) * 10) * 1.5, state.palette.c); }
       }
 
       function damagePlayer() {
@@ -756,7 +750,6 @@
           state.progression.xpForNext = Math.floor(state.progression.xpForNext * 1.15 + 25);
           state.flags.justLeveled = true;
           showToast(`Level Up! → L${state.progression.level}`, 1500);
-          // reward: random upgrade
           const upKeys = ["speed", "magnet", "shield", "fireRate"];
           const k = upKeys[Math.floor(Math.random() * upKeys.length)];
           state.progression.upgrades[k] += 1;
@@ -787,15 +780,11 @@
       function drawNeonDisc(cctx, gctx, x, y, r, color, glow=1) {
         drawGlowDot(gctx, x, y, r * 1.4, color, glow);
         const grad = cctx.createRadialGradient(x, y, 0, x, y, r);
-        grad.addColorStop(0, "#fff");
-        grad.addColorStop(0.4, color);
-        grad.addColorStop(1, "#0a0d1f");
+        grad.addColorStop(0, "#fff"); grad.addColorStop(0.4, color); grad.addColorStop(1, "#0a0d1f");
         cctx.fillStyle = grad;
         cctx.beginPath(); cctx.arc(x, y, r, 0, Math.PI * 2); cctx.fill();
 
-        cctx.strokeStyle = color;
-        cctx.globalAlpha = 0.7;
-        cctx.lineWidth = 2;
+        cctx.strokeStyle = color; cctx.globalAlpha = 0.7; cctx.lineWidth = 2;
         cctx.beginPath(); cctx.arc(x, y, r*0.7, 0, Math.PI * 2); cctx.stroke();
         cctx.globalAlpha = 1;
       }
@@ -805,31 +794,21 @@
         cctx.translate(x, y);
         cctx.rotate((Math.sin((state.time + x + y) * 3) * 0.5));
         const grad = cctx.createLinearGradient(0, -s, 0, s);
-        grad.addColorStop(0, "#fff");
-        grad.addColorStop(1, color);
+        grad.addColorStop(0, "#fff"); grad.addColorStop(1, color);
         cctx.fillStyle = grad;
         cctx.beginPath();
-        cctx.moveTo(0, -s*1.3);
-        cctx.lineTo(s*0.9, 0);
-        cctx.lineTo(0, s*1.3);
-        cctx.lineTo(-s*0.9, 0);
-        cctx.closePath();
-        cctx.fill();
+        cctx.moveTo(0, -s*1.3); cctx.lineTo(s*0.9, 0); cctx.lineTo(0, s*1.3); cctx.lineTo(-s*0.9, 0);
+        cctx.closePath(); cctx.fill();
         cctx.restore();
       }
       function withAlpha(hexOrHsl, alpha) {
         if (/^#/.test(hexOrHsl)) {
-          // expand shorthand
           let h = hexOrHsl.replace('#', '');
           if (h.length === 3) h = h.split('').map(ch => ch + ch).join('');
-          const r = parseInt(h.slice(0,2),16);
-          const g = parseInt(h.slice(2,4),16);
-          const b = parseInt(h.slice(4,6),16);
+          const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
           return `rgba(${r},${g},${b},${alpha})`;
         }
-        if (/^hsl/.test(hexOrHsl)) {
-          return hexOrHsl.replace('hsl', 'hsla').replace(')', `, ${alpha})`);
-        }
+        if (/^hsl/.test(hexOrHsl)) return hexOrHsl.replace('hsl', 'hsla').replace(')', `, ${alpha})`);
         return hexOrHsl;
       }
 
@@ -850,8 +829,7 @@
       function updateParticles(dt) {
         for (const p of state.particles) {
           p.life -= dt;
-          p.x += p.vx * dt;
-          p.y += p.vy * dt;
+          p.x += p.vx * dt; p.y += p.vy * dt;
           p.vx *= 0.98; p.vy *= 0.98;
         }
         state.particles = state.particles.filter(p => p.life > 0);
@@ -863,9 +841,7 @@
           drawGlowDot(gctx, p.x, p.y, (1 - a) * 8 + 3, p.color, a * 1.2);
           cctx.globalAlpha = a;
           cctx.fillStyle = "#fff";
-          cctx.beginPath();
-          cctx.arc(p.x, p.y, 1.2 + (1 - a) * 1.1, 0, Math.PI*2);
-          cctx.fill();
+          cctx.beginPath(); cctx.arc(p.x, p.y, 1.2 + (1 - a) * 1.1, 0, Math.PI*2); cctx.fill();
           cctx.globalAlpha = 1;
         }
       }
@@ -890,28 +866,21 @@
           const hue = rnd(180, 320);
           const speed = state.world.speed * rnd(0.8, 1.35) * (1 + 0.02 * state.progression.level);
           state.obstacles.push(new Obstacle(x, -r - 20, r, speed, hue));
-          if (Math.random() < 0.55) {
-            state.entities.push(new Shard(x + rnd(-50, 50), -r - 60));
-          }
+          if (Math.random() < 0.55) state.entities.push(new Shard(x + rnd(-50, 50), -r - 60));
         }
       }
 
       // Background grid and atmosphere
       function drawBackground(cctx) {
-        // Gradient background
         const g = cctx.createLinearGradient(0, 0, 0, state.height);
-        g.addColorStop(0, "#070b1a");
-        g.addColorStop(0.5, "#050816");
-        g.addColorStop(1, "#030510");
+        g.addColorStop(0, "#070b1a"); g.addColorStop(0.5, "#050816"); g.addColorStop(1, "#030510");
         cctx.fillStyle = g;
         cctx.fillRect(0, 0, state.width, state.height);
 
-        // Starfield parallax layers
         const t = state.time;
         drawStars(cctx, 50, 0.4, 0.25, t * 0.1);
         drawStars(cctx, 110, 0.8, 0.5, -t * 0.07);
 
-        // Perspective grid
         state.world.gridPhase += state.world.speed * 0.8 * state.dt;
         const horizon = state.height * 0.32;
         const vanX = state.width * 0.5;
@@ -919,7 +888,6 @@
 
         cctx.strokeStyle = "rgba(110,249,255,0.25)";
         cctx.lineWidth = 1;
-        // Horizontal lines (spaced exponentially for perspective)
         for (let i = 0; i < 24; i++) {
           const p = i / 24;
           const y = horizon + Math.pow(p, 2.6) * (state.height - horizon);
@@ -929,7 +897,6 @@
           cctx.lineTo(state.width, y + (state.world.gridPhase % 20));
           cctx.stroke();
         }
-        // Vertical lines toward vanishing point
         cctx.globalAlpha = 0.75;
         for (let i = -12; i <= 12; i++) {
           const x = i * 60;
@@ -938,21 +905,17 @@
           cctx.lineTo(vanX + x * 4, state.height);
           cctx.stroke();
         }
-
         cctx.globalAlpha = 1;
-        // Atmosphere glow on horizon
+
         const hGrad = cctx.createRadialGradient(vanX, vanY, 10, vanX, vanY, state.height * 0.9);
         hGrad.addColorStop(0, "rgba(110,249,255,0.18)");
         hGrad.addColorStop(0.35, "rgba(255,77,242,0.12)");
         hGrad.addColorStop(1, "rgba(0,0,0,0)");
         cctx.fillStyle = hGrad;
-        cctx.beginPath();
-        cctx.arc(vanX, vanY, state.height * 1.2, 0, Math.PI * 2);
-        cctx.fill();
+        cctx.beginPath(); cctx.arc(vanX, vanY, state.height * 1.2, 0, Math.PI * 2); cctx.fill();
       }
       function drawStars(cctx, count, scale, alpha, offset=0) {
-        cctx.save();
-        cctx.globalAlpha = alpha;
+        cctx.save(); cctx.globalAlpha = alpha;
         for (let i = 0; i < count * state.graphics.particleMul; i++) {
           const x = (i * 199) % state.width;
           const y = ((i * 97) % state.height) * scale + (offset * 80 % state.height);
@@ -963,12 +926,12 @@
         cctx.restore();
       }
 
-      // Render pipeline: scene -> bloom downsample -> composite -> motion blur -> chroma -> screen
+      // Sizing
       function resizeCanvases() {
         const rect = canvas.getBoundingClientRect();
         const w = Math.max(320, Math.floor(rect.width));
         const h = Math.max(240, Math.floor(rect.height));
-        // physical pixels
+        state.dpr = Math.min(2, window.devicePixelRatio || 1);
         const internalScale = state.graphics.resScale * state.dpr;
         const pw = Math.floor(w * internalScale);
         const ph = Math.floor(h * internalScale);
@@ -984,48 +947,45 @@
         state.width = pw;
         state.height = ph;
         state.internalScale = internalScale;
-        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0); // ensure crisp UI scaling
       }
 
-      function clearBuffer(c, color="#000000") {
-        const cctx = c.getContext("2d");
+      function clear2D(cctx, w, h, color) {
         cctx.setTransform(1,0,0,1,0,0);
         cctx.globalCompositeOperation = "source-over";
         cctx.globalAlpha = 1;
-        cctx.fillStyle = color;
-        cctx.fillRect(0, 0, c.width, c.height);
+        if (color) {
+          cctx.fillStyle = color;
+          cctx.fillRect(0, 0, w, h);
+        } else {
+          cctx.clearRect(0, 0, w, h);
+        }
       }
 
       // Bloom via multi-resolution downsample and additive upsample
+      const bloomDowns = [];
       function applyBloom() {
-        // Downsample cascade
         const passes = clamp(state.graphics.bloomPasses|0, 1, 6);
-        const chain = [buffers.glow];
-        bctx.temp.imageSmoothingEnabled = true;
-        bctx.temp2.imageSmoothingEnabled = true;
 
+        // Build downsample chain
         let src = buffers.glow;
         for (let i = 0; i < passes; i++) {
           const scale = Math.pow(0.5, i + 1);
           const w = Math.max(2, Math.floor(buffers.glow.width * scale));
           const h = Math.max(2, Math.floor(buffers.glow.height * scale));
-          buffers.temp.width = w; buffers.temp.height = h;
-          bctx.temp.clearRect(0, 0, w, h);
-          // soft downsample
-          bctx.temp.globalAlpha = 1;
-          bctx.temp.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h);
-          chain.push(buffers.temp.cloneNode(true)); // clone canvas with same size
-          // copy content to the cloned node
-          const last = chain[chain.length - 1].getContext("2d");
-          last.drawImage(buffers.temp, 0, 0);
-          src = chain[chain.length - 1];
+          const dn = bloomDowns[i] || (bloomDowns[i] = document.createElement("canvas"));
+          dn.width = w; dn.height = h;
+          const dctx = dn.getContext("2d");
+          dctx.imageSmoothingEnabled = true;
+          clear2D(dctx, w, h);
+          dctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, w, h);
+          src = dn;
         }
 
-        // Clear glow and rebuild by upsampling additively
-        clearBuffer(buffers.glow, "rgba(0,0,0,0)");
+        // Rebuild glow
+        clear2D(bctx.glow, buffers.glow.width, buffers.glow.height);
         bctx.glow.globalCompositeOperation = "lighter";
-        for (let i = chain.length - 1; i >= 1; i--) {
-          const img = chain[i];
+        for (let i = passes - 1; i >= 0; i--) {
+          const img = bloomDowns[i];
           bctx.glow.globalAlpha = 0.85;
           bctx.glow.drawImage(img, 0, 0, img.width, img.height, 0, 0, buffers.glow.width, buffers.glow.height);
         }
@@ -1033,9 +993,26 @@
         bctx.glow.globalAlpha = clamp(state.graphics.bloomStrength, 0, 3);
       }
 
+      function tintCanvas(src, dst, color) {
+        dst.width = src.width; dst.height = src.height;
+        const d = dst.getContext("2d");
+        clear2D(d, dst.width, dst.height);
+        d.globalCompositeOperation = "source-over";
+        d.drawImage(src, 0, 0);
+        // Multiply tint
+        d.globalCompositeOperation = "multiply";
+        d.fillStyle = color;
+        d.fillRect(0, 0, dst.width, dst.height);
+        // Keep alpha of source
+        d.globalCompositeOperation = "destination-in";
+        d.drawImage(src, 0, 0);
+        d.globalCompositeOperation = "source-over";
+      }
+
       function composite() {
         const cctx = bctx.compose;
-        clearBuffer(buffers.compose, "#000");
+        // Clear compose fully transparent
+        clear2D(cctx, buffers.compose.width, buffers.compose.height);
 
         // Motion blur accumulation
         if (state.graphics.motionBlur) {
@@ -1059,37 +1036,20 @@
           cctx.fillRect(0, 0, state.width, state.height);
         }
 
-        // Save to lastFrame (for next motion blur)
-        bctx.lastFrame.globalAlpha = 1;
-        bctx.lastFrame.globalCompositeOperation = "source-over";
+        // Save to lastFrame (for motion blur)
+        clear2D(bctx.lastFrame, buffers.lastFrame.width, buffers.lastFrame.height);
         bctx.lastFrame.drawImage(buffers.compose, 0, 0);
 
-        // Chromatic aberration composite to screen
-        if (state.graphics.chroma) {
-          // Prepare channels
-          const shift = Math.floor(1 + Math.max(state.width, state.height) * 0.003); // small offset
-          // R
-          clearBuffer(buffers.r, "rgba(0,0,0,0)");
-          bctx.r.drawImage(buffers.compose, 0, 0);
-          bctx.r.globalCompositeOperation = "source-in";
-          bctx.r.fillStyle = "rgba(255,0,0,1)";
-          bctx.r.fillRect(0, 0, state.width, state.height);
-          // G
-          clearBuffer(buffers.g, "rgba(0,0,0,0)");
-          bctx.g.drawImage(buffers.compose, 0, 0);
-          bctx.g.globalCompositeOperation = "source-in";
-          bctx.g.fillStyle = "rgba(0,255,0,1)";
-          bctx.g.fillRect(0, 0, state.width, state.height);
-          // B
-          clearBuffer(buffers.b, "rgba(0,0,0,0)");
-          bctx.b.drawImage(buffers.compose, 0, 0);
-          bctx.b.globalCompositeOperation = "source-in";
-          bctx.b.fillStyle = "rgba(0,0,255,1)";
-          bctx.b.fillRect(0, 0, state.width, state.height);
+        // Present to the screen
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          // Draw to screen with small offsets
-          ctx.setTransform(1,0,0,1,0,0);
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (state.graphics.chroma) {
+          tintCanvas(buffers.compose, buffers.r, "rgb(255,0,0)");
+          tintCanvas(buffers.compose, buffers.g, "rgb(0,255,0)");
+          tintCanvas(buffers.compose, buffers.b, "rgb(0,0,255)");
+
+          const shift = Math.max(1, Math.round(Math.max(canvas.width, canvas.height) * 0.002));
           ctx.globalCompositeOperation = "lighter";
           ctx.globalAlpha = 0.9;
           ctx.drawImage(buffers.r, -shift, 0, canvas.width, canvas.height);
@@ -1098,9 +1058,6 @@
           ctx.globalAlpha = 1;
           ctx.globalCompositeOperation = "source-over";
         } else {
-          // No chroma: draw compose directly to screen
-          ctx.setTransform(1,0,0,1,0,0);
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(buffers.compose, 0, 0, canvas.width, canvas.height);
         }
       }
@@ -1109,65 +1066,48 @@
       function renderWorld() {
         const cctx = bctx.scene;
         const gctx = bctx.glow;
+        clear2D(cctx, buffers.scene.width, buffers.scene.height, "#000");
+        clear2D(gctx, buffers.glow.width, buffers.glow.height);
 
-        // Clear layer contents
-        clearBuffer(buffers.scene, "#000");
-        clearBuffer(buffers.glow, "rgba(0,0,0,0)");
-
-        // Background and atmosphere
         drawBackground(cctx);
-
-        // Entities
         for (const o of state.obstacles) o.draw(cctx, gctx);
         for (const e of state.entities) e.draw(cctx, gctx);
-        // Player
         state.player.draw(cctx, gctx);
-        // Particles
         drawParticles(cctx, gctx);
 
-        // HUD-lined horizon flare
         const horizonY = state.height * 0.32;
         drawGlowDot(gctx, state.width * 0.5, horizonY, 200, "rgba(255,255,255,1)", 0.18 * state.graphics.bloomStrength);
       }
 
       // Update
       function update(dt) {
-        // Auto scale guard: if FPS dips below 45, reduce resScale slightly; if above 58, gently restore
         if (state.graphics.autoScale) {
+          const targetRS = (PRESETS[state.graphics.preset] ? PRESETS[state.graphics.preset].resScale : 1.0);
           if (state.fpsSMA < 45 && state.graphics.resScale > 0.6) {
             state.graphics.resScale = Math.max(0.6, state.graphics.resScale - 0.05);
             resizeCanvases();
-          } else if (state.fpsSMA > 58 && state.graphics.resScale < (PRESETS[state.graphics.preset] ? PRESETS[state.graphics.preset].resScale : 1.0)) {
-            state.graphics.resScale = Math.min(PRESETS[state.graphics.preset].resScale, state.graphics.resScale + 0.02);
+          } else if (state.fpsSMA > 58 && state.graphics.resScale < targetRS) {
+            state.graphics.resScale = Math.min(targetRS, state.graphics.resScale + 0.02);
             resizeCanvases();
           }
         }
 
-        // Update difficulty multiplier
         state.world.difficultyMul = ({relaxed:0.8, normal:1, hard:1.2, insane:1.45})[state.gameplay.difficulty] || 1;
         const diffMul = state.world.difficultyMul;
 
-        // Player
         state.player.update(dt);
-
-        // Spawning and world speed scaling
         state.world.speed = 140 * diffMul * (1 + 0.03 * state.progression.level);
         spawnTick(dt);
 
-        // Update obstacles and entities
         for (const o of state.obstacles) o.update(dt);
         state.obstacles = state.obstacles.filter(o => !o.dead);
-
         for (const e of state.entities) e.update(dt);
         state.entities = state.entities.filter(e => !e.dead);
-
         updateParticles(dt);
 
-        // Scoring over time
         state.score += dt * 10 * diffMul;
         if (Math.random() < 0.02 * dt) addXP(1);
 
-        // UI
         ui.score.textContent = "Score: " + Math.floor(state.score);
         ui.shards.textContent = "Shards: " + Math.floor(state.progression.shards);
         ui.level.textContent = "Level: " + state.progression.level;
@@ -1176,7 +1116,6 @@
         ui.xpFill.style.width = xpPct + "%";
         ui.progressText.textContent = `XP ${Math.floor(state.progression.xp)}/${state.progression.xpForNext}`;
 
-        // Save occasionally
         if (!update.saveTimer) update.saveTimer = 0;
         update.saveTimer += dt;
         if (update.saveTimer > 4) { update.saveTimer = 0; save(); }
@@ -1184,35 +1123,38 @@
 
       // Main loop
       function loop() {
-        const t = now();
-        let dt = (t - state.lastTime) / 1000;
-        state.lastTime = t;
-        dt = Math.min(0.033, dt); // clamp
-        state.time += dt;
-        state.dt = dt;
+        let t;
+        try {
+          t = now();
+          let dt = (t - state.lastTime) / 1000;
+          state.lastTime = t;
+          dt = Math.min(0.033, dt || 0.016);
+          state.time += dt;
+          state.dt = dt;
 
-        // FPS smoothing
-        const fps = 1 / (dt || 1/60);
-        state.fpsSMA = state.fpsSMA * 0.92 + fps * 0.08;
-        ui.fps.textContent = "FPS: " + Math.round(state.fpsSMA);
+          const fps = 1 / (dt || 1/60);
+          state.fpsSMA = state.fpsSMA * 0.92 + fps * 0.08;
+          ui.fps.textContent = "FPS: " + Math.round(state.fpsSMA);
 
-        if (state.running) {
-          update(dt);
-          renderWorld();
-          applyBloom();
-          composite();
-        } else {
-          // Idle attract effect: render world with slow motion
-          update(dt * 0.35);
-          renderWorld();
-          applyBloom();
-          composite();
+          if (state.running) {
+            update(dt);
+            renderWorld();
+            applyBloom();
+            composite();
+          } else {
+            update(dt * 0.35);
+            renderWorld();
+            applyBloom();
+            composite();
+          }
+        } catch (e) {
+          showFatal("Render loop error: " + (e && e.message ? e.message : e));
+          console.error(e);
+          return;
         }
-
         requestAnimationFrame(loop);
       }
 
-      // Controls / UI
       function showToast(text, duration=1200) {
         const el = ui.toast;
         el.textContent = text;
@@ -1235,29 +1177,29 @@
       function syncSettingsUI() {
         ui.preset.value = state.graphics.preset || "custom";
 
-        ui.resScale.value = state.graphics.resScale.toFixed(2);
-        ui.resScaleNum.value = state.graphics.resScale.toFixed(2);
+        ui.resScale.value = (+state.graphics.resScale).toFixed(2);
+        ui.resScaleNum.value = (+state.graphics.resScale).toFixed(2);
 
-        ui.bloomStrength.value = state.graphics.bloomStrength.toFixed(2);
-        ui.bloomStrengthNum.value = state.graphics.bloomStrength.toFixed(2);
+        ui.bloomStrength.value = (+state.graphics.bloomStrength).toFixed(2);
+        ui.bloomStrengthNum.value = (+state.graphics.bloomStrength).toFixed(2);
 
         ui.bloomPasses.value = state.graphics.bloomPasses|0;
         ui.bloomPassesNum.value = state.graphics.bloomPasses|0;
 
         ui.motionBlur.checked = !!state.graphics.motionBlur;
 
-        ui.mbStrength.value = state.graphics.mbStrength.toFixed(2);
-        ui.mbStrengthNum.value = state.graphics.mbStrength.toFixed(2);
+        ui.mbStrength.value = (+state.graphics.mbStrength).toFixed(2);
+        ui.mbStrengthNum.value = (+state.graphics.mbStrength).toFixed(2);
 
         ui.vignette.checked = !!state.graphics.vignette;
         ui.chroma.checked = !!state.graphics.chroma;
         ui.grainToggle.checked = !!state.graphics.grain;
 
-        ui.particleMul.value = state.graphics.particleMul.toFixed(2);
-        ui.particleMulNum.value = state.graphics.particleMul.toFixed(2);
+        ui.particleMul.value = (+state.graphics.particleMul).toFixed(2);
+        ui.particleMulNum.value = (+state.graphics.particleMul).toFixed(2);
 
-        ui.trailQuality.value = state.graphics.trailQuality.toFixed(2);
-        ui.trailQualityNum.value = state.graphics.trailQuality.toFixed(2);
+        ui.trailQuality.value = (+state.graphics.trailQuality).toFixed(2);
+        ui.trailQualityNum.value = (+state.graphics.trailQuality).toFixed(2);
 
         ui.difficulty.value = state.gameplay.difficulty || "normal";
         ui.autoScale.checked = !!state.graphics.autoScale;
@@ -1281,7 +1223,7 @@
         g.autoScale = !!ui.autoScale.checked;
 
         state.gameplay.difficulty = ui.difficulty.value;
-        // mark as custom if any difference from preset
+
         const p = PRESETS[g.preset] || {};
         const diff =
           Math.abs(g.resScale - (p.resScale ?? 1.0)) > 0.001 ||
@@ -1294,14 +1236,12 @@
           !!g.grain !== !!p.grain ||
           Math.abs(g.particleMul - (p.particleMul ?? 1.5)) > 0.001 ||
           Math.abs(g.trailQuality - (p.trailQuality ?? 0.7)) > 0.001;
-        if (diff) {
-          g.preset = "custom";
-        }
+        if (diff) g.preset = "custom";
+
         overlayGrain.style.opacity = g.grain ? "0.15" : "0";
       }
 
       function wireSettingsUI() {
-        // link range <-> number controls
         const link = (range, num, min, max, step=0.01, round=2) => {
           const sync = (el) => {
             let v = clamp(parseFloat(el.value || 0), min, max);
@@ -1325,16 +1265,14 @@
           save();
           showToast("Settings Applied");
         });
-        ui.closeBtn.addEventListener("click", () => {
-          ui.panel.classList.remove("show");
-        });
+        ui.closeBtn.addEventListener("click", () => ui.panel.classList.remove("show"));
         ui.preset.addEventListener("change", () => {
           const p = ui.preset.value;
           if (p !== "custom") applyPreset(p);
         });
         ui.resetBtn.addEventListener("click", () => {
           if (confirm("Reset all progression?")) {
-            state.progression = structuredClone(DEFAULTS.progression);
+            state.progression = safeClone(DEFAULTS.progression);
             save();
             showToast("Progress Reset");
           }
@@ -1375,36 +1313,28 @@
       // Setup + start
       function init() {
         load();
-        // player
         state.player = new Player();
         resizeCanvases();
         spawnInitial();
         state.player.reset();
-        // presets apply to UI
         if (!PRESETS[state.graphics.preset]) state.graphics.preset = "high";
         applyPreset(state.graphics.preset);
         syncSettingsUI();
         wireSettingsUI();
-
-        // Resize handling
         let resizeTimer;
         const onResize = () => {
           clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
-            state.dpr = Math.min(2, window.devicePixelRatio || 1);
             resizeCanvases();
             state.player.reset();
           }, 100);
         };
         window.addEventListener("resize", onResize);
-
-        // initial draw
         loop();
       }
 
-      // Kick off
-      init();
-
+      try { init(); }
+      catch (e) { showFatal("Initialization error: " + (e && e.message ? e.message : e)); console.error(e); }
     })();
   </script>
 </body>
